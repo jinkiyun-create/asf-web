@@ -8,13 +8,12 @@ import os
 # 1. 페이지 설정 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
 
-# 🔒 [보안] 우측 상단 메뉴(햄버거 버튼)와 하단 푸터를 숨겨서 일반 사용자가 수정을 시도하지 못하게 합니다.
+# 🔒 [보안] 우측 상단 메뉴와 하단 푸터 숨김
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    /* 제목 스타일 강화 */
     .main-title {
         font-size: 40px !important;
         font-weight: 800;
@@ -34,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (내용 보강)
+# 2. 전국 주요 발생 지역 좌표 사전 (미표시 지역 보강)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -47,7 +46,10 @@ location_map = {
     "경주": [35.8562, 129.2247], "상주": [36.4109, 128.1591], "문경": [36.5861, 128.1868],
     "의성": [36.3522, 128.6970], "청송": [36.4362, 129.0573], "영양": [36.6666, 129.1120],
     "봉화": [36.8931, 128.7325], "울진": [36.9931, 129.4005], "김포": [37.6151, 126.7154],
-    "강화": [37.7461, 126.4842], "인천": [37.4562, 126.7052], "부산": [35.1798, 129.0750]
+    "강화": [37.7461, 126.4842], "인천": [37.4562, 126.7052], "부산": [35.1798, 129.0750],
+    # 미표시 지역 추가 대응
+    "소초": [37.3881, 127.9942], "신북": [37.9405, 127.2185], "가평": [37.8315, 127.5095], 
+    "포항": [36.0190, 129.3435], "예천": [36.6575, 128.4528], "정선": [37.3806, 128.6608]
 }
 
 # 3. 데이터 로드
@@ -66,14 +68,14 @@ if not df.empty:
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
+    
+    # 💡 [수정] 64건에서 62건으로 제한
+    df_filtered = df_filtered.head(62)
 
     # 4. 지도 및 요약 표시
-    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {len(df_filtered)}건)")
+    st.subheader(f"📍 ASF 발생 위치 (표시 건수: {len(df_filtered)}건)")
     
-    # 지도 생성
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
-    
-    # 💡 마커 클러스터 추가 (같은 위치에 여러 건이 있을 경우 숫자로 합쳐서 보여줌)
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
@@ -95,7 +97,6 @@ if not df.empty:
             scale = row.get('사육규모', 0)
             scale_formatted = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else str(scale)
             
-            # 💡 [가시성 개선] 팝업창 디자인 (HTML/CSS)
             popup_html = f"""
             <div style="font-family: 'Malgun Gothic', sans-serif; width: 200px;">
                 <h4 style="margin: 0 0 5px 0; color: #d32f2f;">{city_text}</h4>
@@ -119,7 +120,6 @@ if not df.empty:
     if '사육규모' in display_df.columns:
         display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
     
-    # [보안] 데이터프레임에서도 수정을 방지하기 위해 정적 테이블 느낌으로 출력
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
     st.warning("data.xlsx 파일을 찾을 수 없거나 데이터가 비어 있습니다.")
