@@ -4,19 +4,21 @@ import folium
 from streamlit_folium import st_folium
 import os
 
-# 1. 페이지 설정 및 보안 (우측 상단 메뉴/푸터 숨기기)
+# 1. 페이지 설정 (사이드바가 처음부터 열려 있도록 'expanded'로 변경)
 st.set_page_config(
     page_title="ASF 발생 현황 관리 시스템", 
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" 
 )
 
-# 외부 사용자가 수정 모드나 메뉴를 보지 못하게 하는 스타일 설정
+# 외부 사용자가 메뉴/수정 버튼을 못 보게 하는 보안 스타일
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    /* 수정 버튼 등을 가리는 추가 보안 */
+    .stDeployButton {display:none;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -30,7 +32,7 @@ with col1:
 with col2:
     st.title("아프리카돼지열병(ASF) 발생 현황 관리 시스템")
 
-# 3. 좌표 사전 (보령, 영광 등 포함)
+# 3. 좌표 사전 (보령, 영광 포함 전국 주요 지역)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -58,11 +60,20 @@ def load_data():
 df = load_data()
 
 if not df.empty:
-    st.sidebar.header("🔍 검색 및 필터")
-    search = st.sidebar.text_input("지역 또는 내용 검색")
-    df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
+    # 4. 사이드바 전체 검색 복구
+    st.sidebar.header("🔍 통합 검색")
+    search_term = st.sidebar.text_input("지역, 일자, 내용 등 입력", placeholder="예: 보령, 2024...")
+    
+    if search_term:
+        # 모든 열을 대상으로 검색어 확인
+        df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
+        current_count = len(df_filtered)
+    else:
+        df_filtered = df
+        current_count = 62 # 기본 표시 건수
 
-    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 62건)")
+    # 5. 지도 표시 (팝업 가독성 강화)
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {current_count}건)")
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
 
     for _, row in df_filtered.iterrows():
@@ -84,23 +95,23 @@ if not df.empty:
             scale = row.get('사육규모', 0)
             scale_formatted = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else "정보없음"
             
-            # 💡 팝업 스타일 수정: 가로폭 넓히기(min-width), 글자 시인성 강화
+            # 팝업 가시성 개선 HTML
             html = f"""
-            <div style="font-family: 'Malgun Gothic'; min-width: 250px; line-height: 1.6;">
-                <h4 style="margin-bottom: 5px; color: #d32f2f;">{city_text}</h4>
-                <hr style="margin: 5px 0;">
-                <b>사육규모:</b> {scale_formatted}두<br>
-                <b>발생내용:</b> {row.get('발생내용', '상세 정보 없음')}
+            <div style="font-family: 'Malgun Gothic', sans-serif; min-width: 220px; padding: 5px;">
+                <h4 style="margin: 0 0 10px 0; color: #d32f2f; border-bottom: 1px solid #eee;">{city_text}</h4>
+                <p style="margin: 5px 0;"><b>사육규모:</b> {scale_formatted}두</p>
+                <p style="margin: 5px 0; font-size: 0.9em; color: #333;"><b>발생내용:</b> {row.get('발생내용', '')}</p>
             </div>
             """
             folium.Marker(
                 location=coords,
-                popup=folium.Popup(html, max_width=400), # 가로폭 최대치 확장
+                popup=folium.Popup(html, max_width=350),
                 icon=folium.Icon(color='red', icon='warning', prefix='fa')
             ).add_to(m)
 
     st_folium(m, width="100%", height=500)
 
+    # 6. 상세 목록
     st.subheader("📋 상세 발생 목록")
     display_df = df_filtered.copy()
     if '사육규모' in display_df.columns:
