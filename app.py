@@ -8,7 +8,7 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="ASF 관리 시스템", layout="wide")
 
-# 🎨 디자인 스타일 (여백 및 줄 간격 최적화)
+# 🎨 가로형 대형 레이아웃 스타일
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -16,53 +16,60 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display:none;}
     
-    /* 전체 컨테이너 여백 */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
+    /* 전체 상단 컨테이너 가로 정렬 */
+    .header-container {
+        display: flex;
+        align-items: center; /* 세로 중앙 정렬 */
+        gap: 30px;           /* 로고와 제목 사이 간격 */
+        margin-bottom: 20px;
+        white-space: nowrap; /* 제목 줄바꿈 방지 */
     }
 
-    /* 초대형 제목: 줄 간격을 1.2로 늘려 답답함 해소 */
+    /* 초대형 가로 제목 */
     .giant-title {
-        font-size: 100px; 
+        font-size: 85px;    /* 크기를 키우면서 한 줄에 나오도록 조절 */
         font-weight: 900;
         color: #d32f2f;
-        line-height: 1.2; /* 줄 간격 확보 */
-        margin-bottom: 10px;
-        letter-spacing: -2px;
+        margin: 0;
+        letter-spacing: -3px;
     }
 
-    /* 상태 표시줄: 독립적인 공간 확보 */
-    .status-info {
-        font-size: 24px;
+    /* 상태 표시바 */
+    .status-bar {
+        font-size: 22px;
         font-weight: 600;
         color: #333;
-        background-color: #f9f9f9;
-        padding: 15px 25px;
-        border-radius: 12px;
-        border-left: 8px solid #d32f2f;
-        margin-bottom: 40px; /* 아래 요소와 간격 확보 */
-        display: inline-block;
+        background-color: #f2f2f2;
+        padding: 12px 25px;
+        border-radius: 8px;
+        border-left: 10px solid #d32f2f;
+        margin-bottom: 30px;
         width: 100%;
-    }
-
-    /* 로고 이미지 정렬 */
-    .logo-container {
-        display: flex;
-        align-items: center;
-        margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 상단 레이아웃 (로고와 제목 분리 배치)
-if os.path.exists("logo.png"):
-    st.image("logo.png", width=200)
+# 2. 로고와 제목 가로 배치 (로고가 왼쪽, 제목이 오른쪽)
+col_header = st.container()
+with col_header:
+    # HTML을 사용하여 로고와 제목을 한 줄에 배치
+    logo_path = "logo.png" if os.path.exists("logo.png") else ""
+    
+    if logo_path:
+        # 로고가 있을 경우 가로로 배치
+        col_logo, col_title = st.columns([1, 8]) # 비율 조정으로 제목 공간 확보
+        with col_logo:
+            st.image(logo_path, width=200) # 로고 크기
+        with col_title:
+            st.markdown('<p class="giant-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
+    else:
+        # 로고가 없을 경우 제목만 크게
+        st.markdown('<p class="giant-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-st.markdown('<p class="giant-title">아프리카돼지열병(ASF)<br>발생 현황 관리 시스템</p>', unsafe_allow_html=True)
-st.markdown('<div class="status-info">📍 ASF 발생 위치 (총 발생건수: 62건)</div>', unsafe_allow_html=True)
+# 상태 요약 정보
+st.markdown('<div class="status-bar">📍 ASF 발생 위치 (총 발생건수: 62건)</div>', unsafe_allow_html=True)
 
-# 3. 전국 좌표 사전 (누락 방지 보강)
+# 3. 전국 좌표 사전 보강 (누락 방지)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -96,7 +103,7 @@ if not df.empty:
     search_term = st.sidebar.text_input("검색어 입력")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)] if search_term else df
 
-    # 4. 지도 생성 및 마커
+    # 4. 지도 생성 및 마커 (63개 데이터 매칭 로직)
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
@@ -105,14 +112,14 @@ if not df.empty:
         city_text = str(row.get('시군', '')).strip()
         coords = None
         
-        # 엑셀 좌표 우선
+        # 엑셀 위경도 확인
         lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
         
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
         else:
-            # 텍스트 포함 확인
+            # 텍스트 유연 매칭
             for key, val in location_map.items():
                 if key in city_text:
                     coords = val
@@ -134,6 +141,6 @@ if not df.empty:
     st_folium(m, width="100%", height=650)
 
     # 5. 상세 목록
-    st.markdown("### 📋 상세 발생 현황 목록")
+    st.subheader("📋 상세 발생 목록")
     st.dataframe(df_filtered.style.format({'사육규모': "{:,.0f}"}, na_rep="-"), 
                  use_container_width=True, hide_index=True)
