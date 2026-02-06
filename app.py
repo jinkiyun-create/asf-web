@@ -1,4 +1,3 @@
-import tkinter as tk
 from tkinter import ttk, messagebox
 import pandas as pd
 import os
@@ -116,3 +115,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = ASFApp(root)
     root.mainloop()
+
