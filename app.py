@@ -36,12 +36,8 @@ df = load_data()
 
 # 3. 화면 구성
 if df is not None and not df.empty:
-    # --- 💡 총 건수 계산 로직 (53-1 등 부번 제외) ---
-    # 'no' 컬럼에서 숫자가 아닌 것들을 제외하거나, 소수점/부번이 있는 것을 하나로 계산
-    # 여기서는 전체 행 수에서 사용자가 말씀하신 차이만큼을 빼서 '실제 총 62건'으로 고정 표시하거나
-    # 'no' 컬럼의 고유한 정수값만 카운트합니다.
-    
-    total_display_count = 62 # 요청하신 대로 실제 총 합은 62건으로 표시
+    # --- 상단 요약 ---
+    total_asf_count = 62 # 요청하신 확정 건수
     
     # 사이드바 검색
     st.sidebar.header("🔍 통합 검색")
@@ -49,15 +45,17 @@ if df is not None and not df.empty:
     
     if search_term:
         df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
-        current_count = len(df) # 검색 시에는 현재 보이는 행 수 표시
+        display_count = len(df) # 검색 시 필터링된 결과 수
     else:
-        current_count = total_display_count
+        display_count = total_asf_count
 
-    # 지도 표시
-    st.subheader(f"📍 ASF 발생 위치 (실제 총 합계: {current_count}건)")
+    # 지도 표시 (문구 수정: 총 발생건수)
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {display_count}건)")
+    
+    # 지도 중심 설정
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     
-    # 위도/경도 표시 로직
+    # 위도/경도 컬럼 감지 및 마커 표시
     lat_col = [c for c in df.columns if '위도' in c]
     lon_col = [c for c in df.columns if '경도' in c]
     
@@ -71,8 +69,9 @@ if df is not None and not df.empty:
                 ).add_to(m)
     st_folium(m, width="100%", height=400)
 
-    # 4. 상세 목록 (데이터는 64~65개 전체를 보여주되, 번호는 엑셀 그대로)
-    st.subheader(f"📋 상세 발생 목록 (전체 {len(df)}개 행 표시)")
+    # 4. 상세 목록 (문구 삭제 및 데이터 표시)
+    st.subheader("📋 상세 발생 목록")
+    # "전체 64개 행 표시" 안내 없이 데이터프레임만 깔끔하게 출력합니다.
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 else:
