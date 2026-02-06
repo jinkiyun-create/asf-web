@@ -25,6 +25,7 @@ def load_data():
         try:
             # 첫 번째 줄(큰 제목) 건너뛰기
             df = pd.read_excel(file_path, engine='openpyxl', skiprows=1)
+            # 컬럼명 앞뒤 공백 제거 및 문자열화
             df.columns = [str(c).strip() for c in df.columns]
             return df
         except Exception as e:
@@ -36,43 +37,50 @@ df = load_data()
 
 # 3. 화면 구성
 if df is not None and not df.empty:
-    # --- 상단 요약 ---
-    total_asf_count = 62 # 요청하신 확정 건수
+    total_asf_count = 62 
     
-    # 사이드바 검색
     st.sidebar.header("🔍 통합 검색")
     search_term = st.sidebar.text_input("검색어 입력")
     
     if search_term:
-        df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
-        display_count = len(df) # 검색 시 필터링된 결과 수
+        df_display = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
+        display_count = len(df_display)
     else:
+        df_display = df
         display_count = total_asf_count
 
-    # 지도 표시 (문구 수정: 총 발생건수)
+    # 문구 수정 완료: 총 발생건수
     st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {display_count}건)")
     
-    # 지도 중심 설정
+    # 지도 생성 (한반도 중심)
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     
-    # 위도/경도 컬럼 감지 및 마커 표시
-    lat_col = [c for c in df.columns if '위도' in c]
-    lon_col = [c for c in df.columns if '경도' in c]
+    # 💡 지도 위치 표시 핵심 로직
+    # 엑셀 파일에서 '위도'와 '경도'가 포함된 컬럼을 찾습니다.
+    lat_col = [c for c in df_display.columns if '위도' in c]
+    lon_col = [c for c in df_display.columns if '경도' in c]
     
     if lat_col and lon_col:
-        for _, row in df.iterrows():
-            if pd.notnull(row[lat_col[0]]) and pd.notnull(row[lon_col[0]]):
-                folium.Marker(
-                    location=[row[lat_col[0]], row[lon_col[0]]],
-                    popup=f"<b>{row.get('시군', '')}</b>",
-                    icon=folium.Icon(color='red')
-                ).add_to(m)
-    st_folium(m, width="100%", height=400)
+        for _, row in df_display.iterrows():
+            try:
+                lat = float(row[lat_col[0]])
+                lon = float(row[lon_col[0]])
+                if not (pd.isna(lat) or pd.isna(lon)):
+                    # 마커 추가
+                    folium.Marker(
+                        location=[lat, lon],
+                        popup=f"<b>{row.get('시군', '위치')}</b><br>{row.get('발생내용', '')}",
+                        icon=folium.Icon(color='red', icon='info-sign')
+                    ).add_to(m)
+            except:
+                continue # 숫자가 아닌 데이터는 건너뜁니다.
+    
+    # 지도 출력
+    st_folium(m, width="100%", height=500)
 
-    # 4. 상세 목록 (문구 삭제 및 데이터 표시)
+    # 4. 상세 목록
     st.subheader("📋 상세 발생 목록")
-    # "전체 64개 행 표시" 안내 없이 데이터프레임만 깔끔하게 출력합니다.
-    st.dataframe(df, use_container_width=True, hide_index=True, height=700)
+    st.dataframe(df_display, use_container_width=True, hide_index=True, height=600)
 
 else:
-    st.info("데이터를 불러오는 중입니다...")
+    st.info("데이터를 불러오는 중입니다... 'data.xlsx' 파일과 'openpyxl' 라이브러리를 확인해주세요.")
