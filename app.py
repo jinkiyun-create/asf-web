@@ -5,9 +5,10 @@ from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 import os
 
-# 1. 페이지 설정 및 보안 스타일
-st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
+# 1. 페이지 설정
+st.set_page_config(page_title="ASF 관리 시스템", layout="wide")
 
+# 🎨 디자인 스타일 (제목 크기 2배 이상 키움)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -15,38 +16,36 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display:none;}
     
-    /* 제목을 아주 크게 강조 */
-    .main-title {
-        font-size: 42px; /* 글씨 크기 확대 */
+    /* 제목 스타일: 크기를 80px로 대폭 확대 */
+    .hero-title {
+        font-size: 80px; 
         font-weight: 900;
         color: #d32f2f;
-        margin-bottom: 10px;
+        text-align: left;
+        margin-top: -20px;
+        margin-bottom: 5px;
+        letter-spacing: -2px;
         line-height: 1.1;
     }
-    .sub-info {
-        font-size: 20px;
-        font-weight: 600;
-        color: #333;
-        margin-bottom: 20px;
+    .status-bar {
+        font-size: 28px;
+        font-weight: 700;
+        color: #1e1e1e;
+        background-color: #f8d7da;
+        padding: 10px 20px;
+        border-radius: 10px;
+        display: inline-block;
+        margin-bottom: 25px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 로고 및 대형 제목
-col1, col2 = st.columns([1, 6])
-with col1:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=160)
-    else:
-        st.markdown("<h3 style='margin-top:20px;'>🏢 LOGO</h3>", unsafe_allow_html=True)
-with col2:
-    st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
-    # 요청하신 발생건수만 표시
-    st.markdown('<p class="sub-info">📍 ASF 발생 위치 (총 발생건수: 62건)</p>', unsafe_allow_html=True)
+# 2. 메인 헤더 (제목 강조)
+st.markdown('<p class="hero-title">아프리카돼지열병(ASF)<br>발생 현황 관리 시스템</p>', unsafe_allow_html=True)
+st.markdown('<div class="status-bar">📍 ASF 발생 위치 (총 발생건수: 62건)</div>', unsafe_allow_html=True)
 
-# 3. 전국 63개 이상 지역 좌표 사전 (누락 방지 필살기)
+# 3. 전국 63개 이상 시군 좌표 사전 (누락 방지)
 location_map = {
-    # 강원/경기/경북 등 주요 발생지 좌표 총망라
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
     "고성": [38.3805, 128.4687], "포천": [37.8949, 127.2003], "양양": [38.0754, 128.6189],
@@ -62,7 +61,8 @@ location_map = {
     "보령": [36.3333, 126.6122], "영광": [35.2742, 126.5122], "영암": [34.8000, 126.7000],
     "무안": [34.9904, 126.4817], "나주": [35.0159, 126.7107], "함평": [35.0661, 126.5168],
     "담양": [35.3211, 126.9881], "장성": [35.3018, 126.7847], "예산": [36.6925, 126.8456],
-    "홍성": [36.6013, 126.6607], "태안": [36.7456, 126.2978], "서산": [36.7845, 126.4503]
+    "홍성": [36.6013, 126.6607], "태안": [36.7456, 126.2978], "서산": [36.7845, 126.4503],
+    "곡성": [35.2818, 127.2917], "구례": [35.2025, 127.4625], "진도": [34.4868, 126.2634]
 }
 
 @st.cache_data
@@ -83,7 +83,7 @@ if not df.empty:
     search_term = st.sidebar.text_input("검색어 입력")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)] if search_term else df
 
-    # 4. 지도 생성 (모든 마커 클러스터링)
+    # 4. 지도 생성 및 마커 (63개 모두 표시 보강)
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
@@ -98,7 +98,7 @@ if not df.empty:
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
         else:
-            # 2) 단어 포함 매칭 (누락 방지)
+            # 2) 단어 포함 매칭 (전국 63개 이상 대응)
             for key, val in location_map.items():
                 if key in city_text:
                     coords = val
@@ -108,18 +108,17 @@ if not df.empty:
             scale = row.get('사육규모', 0)
             scale_formatted = f"{int(scale):,}" if pd.notnull(scale) else "0"
             
-            # 시인성 좋은 팝업
             html = f"""<div style="font-family:'Malgun Gothic'; min-width:230px; line-height:1.6;">
-                        <h4 style="margin:0; color:#d32f2f;">{city_text}</h4>
+                        <h4 style="margin:0; color:#d32f2f; font-size:18px;">{city_text}</h4>
                         <hr style="margin:5px 0;">
-                        <b>규모:</b> {scale_formatted}두<br>
-                        <b>내용:</b> {row.get('발생내용', '')}</div>"""
+                        <b>사육규모:</b> {scale_formatted}두<br>
+                        <b>상세내용:</b> {row.get('발생내용', '')}</div>"""
             folium.Marker(location=coords, popup=folium.Popup(html, max_width=400),
                           icon=folium.Icon(color='red', icon='warning', prefix='fa')).add_to(marker_cluster)
 
-    st_folium(m, width="100%", height=600)
+    st_folium(m, width="100%", height=700) # 지도 높이도 조금 키움
 
-    # 5. 목록 표시 (숫자 콤마 스타일)
+    # 5. 하단 목록
     st.subheader("📋 상세 발생 목록")
     st.dataframe(df_filtered.style.format({'사육규모': "{:,.0f}"}, na_rep="-"), 
-                 use_container_width=True, hide_index=True, height=600)
+                 use_container_width=True, hide_index=True)
