@@ -25,7 +25,6 @@ def load_data():
         try:
             # 첫 번째 줄(큰 제목) 건너뛰기
             df = pd.read_excel(file_path, engine='openpyxl', skiprows=1)
-            # 컬럼명 앞뒤 공백 제거
             df.columns = [str(c).strip() for c in df.columns]
             return df
         except Exception as e:
@@ -36,14 +35,15 @@ def load_data():
 df = load_data()
 
 if df is not None and not df.empty:
-    # 3. 데이터 전처리 (위도, 경도 숫자 변환)
-    # 엑셀에서 제목이 '위도', '경도'인 열을 찾아 숫자로 강제 변환합니다.
+    # 3. 위도/경도 컬럼 찾기 (변수 초기화)
+    lat_col = None
+    lon_col = None
+
+    # 엑셀 제목 중에 '위도'나 '경도'라는 글자가 포함된 열을 찾습니다.
     for col in df.columns:
-        if '위도' in col:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        if '위도' in col or 'Lat' in col:
             lat_col = col
-        if '경도' in col:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        if '경도' in col or 'Lon' in col:
             lon_col = col
 
     # 검색 기능
@@ -54,25 +54,29 @@ if df is not None and not df.empty:
     else:
         df_display = df
 
-    # 4. 지도 표시
+    # 4. 지도 표시 부분
     st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 62건)")
     
-    # 데이터에 위도/경도가 있고, 실제 숫자인 데이터만 필터링
-    map_data = df_display.dropna(subset=[lat_col, lon_col])
-    
-    # 지도의 중심점 (데이터가 있으면 첫 번째 지점, 없으면 대한민국 중심)
-    center_lat = map_data[lat_col].iloc[0] if not map_data.empty else 36.5
-    center_lon = map_data[lon_col].iloc[0] if not map_data.empty else 127.8
-    
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=7)
+    # 지도의 기본 중심점 (대한민국 중심)
+    m = folium.Map(location=[36.5, 127.8], zoom_start=7)
 
-    # 마커 찍기
-    for _, row in map_data.iterrows():
-        folium.Marker(
-            location=[row[lat_col], row[lon_col]],
-            popup=f"<b>{row.get('시군', '발생지')}</b><br>{row.get('발생내용', '')}",
-            icon=folium.Icon(color='red', icon='info-sign')
-        ).add_to(m)
+    # 위도/경도 컬럼을 찾았을 때만 마커를 찍습니다.
+    if lat_col and lon_col:
+        # 데이터를 숫자로 변환하고 비어있는 값은 제거
+        df_display[lat_col] = pd.to_numeric(df_display[lat_col], errors='coerce')
+        df_display[lon_col] = pd.to_numeric(df_display[lon_col], errors='coerce')
+        map_data = df_display.dropna(subset=[lat_col, lon_col])
+
+        for _, row in map_data.iterrows():
+            folium.Marker(
+                location=[row[lat_col], row[lon_col]],
+                popup=f"<b>{row.get('시군', '발생지')}</b><br>{row.get('발생내용', '')}",
+                icon=folium.Icon(color='red', icon='info-sign')
+            ).add_to(m)
+    else:
+        # 컬럼을 못 찾았을 때 경고 메시지
+        st.warning("⚠️ 엑셀에서 '위도'와 '경도' 컬럼을 찾을 수 없어 지도에 표시하지 못했습니다.")
+        st.info(f"현재 인식된 컬럼명: {list(df.columns)}")
 
     st_folium(m, width="100%", height=500)
 
