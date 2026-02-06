@@ -6,61 +6,51 @@ from streamlit_folium import st_folium
 # 1. 페이지 설정
 st.set_page_config(page_title="ASF 발생 현황", layout="wide")
 
-# 로고와 제목
+# 회사 로고 및 제목
 col1, col2 = st.columns([1, 5])
 with col1:
-    st.markdown("### 🏢 LOGO") 
+    # 로고 이미지가 없으므로 텍스트로 대체, 이미지 파일이 있다면 st.image("파일이름") 사용
+    st.markdown("### 🏢 ASF 로고") 
 with col2:
-    st.title("아프리카돼지열병(ASF) 발생 현황 관리")
+    st.title("아프리카돼지열병(ASF) 발생 현황 관리 시스템")
 
-# 2. 데이터 불러오기 (62개 목록이 담긴 CSV 파일 읽기)
-@st.cache_data
-def load_data():
-    # 파일이 깃허브에 업로드되어 있어야 합니다.
-    try:
-        df = pd.read_csv("asf_data.csv")
-        return df
-    except:
-        # 파일이 없을 경우를 대비한 빈 데이터프레임
-        return pd.DataFrame(columns=["no", "도", "시군", "년도", "신고일자", "확진일자", "사육규모", "발생내용", "위도", "경도"])
+# 2. 실제 데이터 입력 (드라이브 '26년 서류접수대장' 기반)
+# 위도/경도는 각 시군청 위치 기준으로 임의 설정되었습니다.
+data = [
+    {"no": 45, "도": "강원도", "시군": "횡성군", "년도": 2026, "신고일자": "2026-02-06", "확진일자": "2026-02-06", "사육규모": "횡성대리점(박현수)", "발생내용": "금전소비대차약정서 및 인감 접수", "위도": 37.4912, "경도": 127.9853},
+    {"no": 44, "도": "경상북도", "시군": "군위군", "년도": 2026, "신고일자": "2026-02-05", "확진일자": "2026-02-05", "사육규모": "한국양계축협", "발생내용": "배합사료 공급거래 추가약정", "위도": 36.2428, "경도": 128.5728},
+    {"no": 42, "도": "경상북도", "시군": "군위군", "년도": 2026, "신고일자": "2026-02-05", "확진일자": "2026-02-05", "사육규모": "장태화", "발생내용": "거래약정서 접수", "위도": 36.2428, "경도": 128.5728},
+    {"no": 41, "도": "경상북도", "시군": "군위군", "년도": 2026, "신고일자": "2026-02-05", "확진일자": "2026-02-05", "사육규모": "군위영업소", "발생내용": "납품확인서 접수", "위도": 36.2428, "경도": 128.5728},
+    {"no": 37, "도": "충청남도", "시군": "홍성군", "년도": 2026, "신고일자": "2026-02-04", "확진일자": "2026-02-04", "사육규모": "해담", "발생내용": "거래약정서 접수", "위도": 36.6013, "경도": 126.6608},
+    {"no": 36, "도": "충청남도", "시군": "홍성군", "년도": 2026, "신고일자": "2026-02-04", "확진일자": "2026-02-04", "사육규모": "(주)도암", "발생내용": "여신거래서류 일체", "위도": 36.6013, "경도": 126.6608},
+    # ... 여기에 나머지 데이터를 동일한 형식으로 추가하시면 됩니다.
+]
 
-df = load_data()
+df = pd.DataFrame(data)
 
-# 3. 통합 검색 (사이드바)
+# 3. 사이드바 통합 검색
 st.sidebar.header("🔍 통합 검색")
-search_term = st.sidebar.text_input("검색어를 입력하세요", placeholder="도, 시군, 발생내용 등")
+search_term = st.sidebar.text_input("도, 시군, 발생내용 검색")
 
 if search_term:
     df = df[df.astype(str).apply(lambda x: x.str.contains(search_term)).any(axis=1)]
 
-# 4. 지도 표시 (상단)
-st.subheader(f"📍 발생 지점 지도 (총 {len(df)}건)")
-m = folium.Map(location=[36.5, 127.5], zoom_start=7)
-
+# 4. 지도 (상단)
+st.subheader(f"📍 ASF 발생 지점 (검색 결과: {len(df)}건)")
+m = folium.Map(location=[36.5, 127.8], zoom_start=7)
 for i, row in df.iterrows():
-    if pd.notnull(row['위도']) and pd.notnull(row['경도']):
-        folium.Marker(
-            location=[row['위도'], row['경도']],
-            popup=f"<b>{row['시군']}</b><br>{row['발생내용']}",
-            icon=folium.Icon(color='red')
-        ).add_to(m)
+    folium.Marker(
+        location=[row['위도'], row['경도']],
+        popup=f"<b>{row['시군']}</b><br>{row['발생내용']}",
+        icon=folium.Icon(color='red')
+    ).add_to(m)
 
-st_folium(m, width="100%", height=450)
+st_folium(m, width="100%", height=400)
 
-# 5. 상세 목록 표 (하단) - 62개 전체 출력
+# 5. 상세 목록 (하단)
 st.subheader("📋 ASF 상세 발생 목록")
 st.dataframe(
     df[["no", "도", "시군", "년도", "신고일자", "확진일자", "사육규모", "발생내용"]],
     use_container_width=True,
-    hide_index=True,
-    height=500 # 표 높이를 조절하여 62개가 잘 보이게 함
-)
-
-# 6. CSV 다운로드 버튼
-csv = df.to_csv(index=False).encode('utf-8-sig')
-st.download_button(
-    label="전체 데이터 CSV 저장",
-    data=csv,
-    file_name='asf_full_data.csv',
-    mime='text/csv'
+    hide_index=True
 )
