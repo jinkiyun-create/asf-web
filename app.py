@@ -4,31 +4,39 @@ import folium
 from streamlit_folium import st_folium
 
 # 페이지 설정
-st.set_page_config(page_title="ASF 지도", layout="wide")
+st.set_page_config(page_title="ASF 발생 현황", layout="wide")
 
-st.title("🐗 ASF 발생 현황 지도 (실시간)")
+st.title("🐗 아프리카돼지열병(ASF) 발생 현황 지도")
 
-# 1. 데이터 준비 (오류 방지를 위한 기본 샘플 데이터)
-data = {
-    '장소': ['포천', '연천', '철원', '화천'],
-    '위도': [37.8949, 38.1021, 38.1467, 38.1062],
-    '경도': [127.2003, 127.0754, 127.3134, 127.7083]
-}
+# --- 여기서부터 본인이 원하는 목록을 작성하세요 ---
+data = [
+    {"장소": "강원도 철원군 OO리", "위도": 38.1467, "경도": 127.3134, "날짜": "2026-02-01"},
+    {"장소": "경기도 파주시 XX면", "위도": 37.8949, "경도": 126.7003, "날짜": "2026-02-03"},
+    {"장소": "인천시 강화군 △△리", "위도": 37.7466, "경도": 126.4880, "날짜": "2026-02-05"},
+    # 계속해서 추가할 수 있습니다.
+]
+# ---------------------------------------------
+
 df = pd.DataFrame(data)
 
-# 2. 지도 만들기
-m = folium.Map(location=[38.1, 127.3], zoom_start=9)
+# 지도 생성
+m = folium.Map(location=[38.0, 127.0], zoom_start=8)
 
-# 지도에 점 찍기
+# 목록을 지도에 표시
 for i, row in df.iterrows():
     folium.Marker(
         location=[row['위도'], row['경도']],
-        popup=row['장소'],
-        icon=folium.Icon(color='red')
+        popup=f"<b>{row['장소']}</b><br>날짜: {row['날짜']}",
+        icon=folium.Icon(color='red', icon='info-sign')
     ).add_to(m)
 
-# 3. 지도 화면에 뿌리기
-st_folium(m, width=800, height=500)
+# 화면 레이아웃 구성
+col1, col2 = st.columns([2, 1])
 
-# 4. 표 보여주기
-st.write("### 발생 상세 목록", df)
+with col1:
+    st.write("### 📍 발생 지점 지도")
+    st_folium(m, width=700, height=500)
+
+with col2:
+    st.write("### 📋 상세 목록")
+    st.dataframe(df, use_container_width=True)
