@@ -2,21 +2,39 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster  # 💡 중복 위치 표시 해결
 import os
 
-# 1. 페이지 및 보안 설정
+# 1. 페이지 설정 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
+
+# 🔒 [보안] 우측 상단 메뉴(햄버거 버튼)와 하단 푸터를 숨겨서 일반 사용자가 수정을 시도하지 못하게 합니다.
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .main-title { font-size: 40px !important; font-weight: 800; color: #d32f2f; text-align: left; }
+    /* 제목 스타일 강화 */
+    .main-title {
+        font-size: 40px !important;
+        font-weight: 800;
+        color: #d32f2f;
+        text-align: left;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 좌표 사전 (지도 표시용 내부 데이터)
+# 로고 및 제목 레이아웃
+col1, col2 = st.columns([1, 6])
+with col1:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=180)
+    else:
+        st.markdown("<h3 style='margin-top:30px;'>🏢 LOGO</h3>", unsafe_allow_html=True)
+with col2:
+    st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
+
+# 2. 전국 주요 발생 지역 좌표 사전 (누락 지역 8곳 포함 전체 업데이트)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -36,81 +54,75 @@ location_map = {
     "청주": [36.6424, 127.4890], "음성": [36.9399, 127.6913], "고령": [35.7258, 128.2635]
 }
 
+# 3. 데이터 로드
 @st.cache_data
 def load_data():
     if os.path.exists("data.xlsx"):
-        # header=None으로 읽어서 실제 컬럼명을 우리가 강제로 부여합니다.
-        raw_df = pd.read_excel("data.xlsx", skiprows=2, header=None) 
-        
-        # 엑셀의 열 순서에 따라 이름을 강제 매칭 (기존 엑셀 구조 기준)
-        # 만약 컬럼 개수가 부족하면 에러가 날 수 있으므로 필요한 만큼만 지정
-        expected_cols = ['번호', '도', '시군', '년도', '신고일자', '확진일자', '사육규모', '발생내용']
-        raw_df.columns = expected_cols[:len(raw_df.columns)]
-    else:
-        raw_df = pd.DataFrame(columns=['번호', '도', '시군', '년도', '신고일자', '확진일자', '사육규모', '발생내용'])
+        df = pd.read_excel("data.xlsx", skiprows=1)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    return pd.DataFrame()
 
-    # 1. '번호' 열에서 숫자만 있는 행 필터링 (계, 53-1 등 문자열 제거)
-    df = raw_df[pd.to_numeric(raw_df['번호'], errors='coerce').notnull()].copy()
-    df['번호'] = pd.to_numeric(df['번호']).astype(int)
-
-    # 2. 63번, 64번 수동 데이터 추가 (요청하신 대로 1~64번 완성)
-    extra_data = pd.DataFrame([
-        {"번호": 63, "도": "경북", "시군": "고령", "년도": 2025, "신고일자": "2025-02-09", "확진일자": "2025-02-09", "사육규모": 1200, "발생내용": "양돈농장 발생"},
-        {"번호": 64, "도": "충북", "시군": "청주", "년도": 2025, "신고일자": "2025-02-10", "확진일자": "2025-02-10", "사육규모": 3500, "발생내용": "양돈농장 발생"}
-    ])
-
-    # 3. 전체 합치고 번호순 정렬
-    full_df = pd.concat([df, extra_data], ignore_index=True)
-    full_df = full_df.sort_values(by='번호').reset_index(drop=True)
-
-    # 4. '계' 행 계산하여 최하단 추가
-    total_scale = pd.to_numeric(full_df['사육규모'], errors='coerce').sum()
-    summary_row = pd.DataFrame([{
-        "번호": "계", "도": "-", "시군": "-", "년도": "-", "신고일자": "-", "확진일자": "-", "사육규모": total_scale, "발생내용": "총 합계"
-    }])
-    
-    return pd.concat([full_df, summary_row], ignore_index=True)
-
-# 데이터 실행
 df = load_data()
 
-# 4. UI 레이아웃
-st.subheader("📍 ASF 발생 위치 (총 발생건수: 64건)")
-
 if not df.empty:
+    # 검색 기능
+    st.sidebar.header("🔍 검색 및 필터")
+    search = st.sidebar.text_input("지역 또는 내용 검색")
+    df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
+
+    # 4. 지도 및 요약 표시
+    # 💡 [요청사항 수정] 총 발생건수 문구를 62건으로 고정 표기 (동적 데이터 반영 시 len(df_filtered) 대신 62 사용 가능하나, 여기서는 문맥상 62건으로 수정)
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 62건)")
+    
+    # 지도 생성
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
+    
+    # 💡 마커 클러스터 추가
     marker_cluster = MarkerCluster().add_to(m)
 
-    # 지도 마커 표시 (계 제외)
-    for _, row in df.iterrows():
-        if row['번호'] == "계": continue
-        
-        city_name = str(row['시군'])
+    for _, row in df_filtered.iterrows():
+        city_text = str(row.get('시군', ''))
         coords = None
-        for key, val in location_map.items():
-            if key in city_name:
-                coords = val
-                break
+        
+        lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
+        lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
+        
+        if pd.notnull(lat_val) and pd.notnull(lon_val):
+            coords = [lat_val, lon_val]
+        else:
+            for key, val in location_map.items():
+                if key in city_text:
+                    coords = val
+                    break
         
         if coords:
-            scale = row['사육규모']
-            popup_text = f"<b>{city_name}</b><br>규모: {scale}두"
-            folium.Marker(location=coords, popup=folium.Popup(popup_text, max_width=200), icon=folium.Icon(color='red', icon='warning', prefix='fa')).add_to(marker_cluster)
+            scale = row.get('사육규모', 0)
+            scale_formatted = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else str(scale)
+            
+            popup_html = f"""
+            <div style="font-family: 'Malgun Gothic', sans-serif; width: 200px;">
+                <h4 style="margin: 0 0 5px 0; color: #d32f2f;">{city_text}</h4>
+                <hr style="margin: 5px 0;">
+                <p style="margin: 3px 0;"><b>규모:</b> {scale_formatted} 두</p>
+                <p style="margin: 3px 0;"><b>내용:</b> {row.get('발생내용', '')}</p>
+            </div>
+            """
+            
+            folium.Marker(
+                location=coords,
+                popup=folium.Popup(popup_html, max_width=300),
+                icon=folium.Icon(color='red', icon='warning', prefix='fa')
+            ).add_to(marker_cluster)
 
     st_folium(m, width="100%", height=600)
 
-    # 5. 상세 발생 목록 (1번~64번 + 계)
+    # 5. 목록 표시
     st.subheader("📋 상세 발생 목록")
-    
-    # 위도/경도 컬럼이 혹시 있어도 제거 (목록에는 안 나오게)
-    display_df = df.copy()
-    if '위도' in display_df.columns: display_df.drop(columns=['위도'], inplace=True)
-    if '경도' in display_df.columns: display_df.drop(columns=['경도'], inplace=True)
-    
-    # 사육규모 콤마 처리
-    display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x)
+    display_df = df_filtered.copy()
+    if '사육규모' in display_df.columns:
+        display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-
 else:
-    st.error("데이터 로드 실패")
+    st.warning("data.xlsx 파일을 찾을 수 없거나 데이터가 비어 있습니다.")
