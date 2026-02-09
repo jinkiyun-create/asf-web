@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster  # 💡 중복 위치 표시 해결
+from folium.plugins import MarkerCluster
 import os
 
 # 1. 페이지 설정 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
 
-# 🔒 [보안] 우측 상단 메뉴와 하단 푸터를 숨깁니다.
+# 🔒 [보안] 메뉴 및 푸터 숨김
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -33,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (누락된 모든 지역 및 신규 지역 포함)
+# 2. 전국 주요 발생 지역 좌표 사전 (SyntaxError 해결 및 전체 지역 포함)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -49,4 +49,79 @@ location_map = {
     "강화": [37.7461, 126.4842], "인천": [37.4562, 126.7052], "부산": [35.1798, 129.0750],
     "소초": [37.3881, 127.9942], "신북": [37.9405, 127.2185], "가평": [37.8315, 127.5095], 
     "포항": [36.0190, 129.3435], "예천": [36.6575, 128.4528], "정선": [37.3806, 128.6608],
-    "보령": [36.3333, 126.6128], "영광": [35.2773, 126.5120], "창녕":
+    "보령": [36.3333, 126.6128], "영광": [35.2773, 126.5120], "창녕": [35.5446, 128.4922],
+    "청주": [36.6424, 127.4890], "음성": [36.9399, 127.6913], "고령": [35.7258, 128.2635],
+    "양주": [37.7853, 127.0457], "당진": [36.8927, 126.6333], "안성": [37.0078, 127.2797], 
+    "고창": [35.4358, 126.7020], "국토정중앙": [38.1051, 127.9897]
+}
+
+# 3. 데이터 로드
+@st.cache_data
+def load_data():
+    if os.path.exists("data.xlsx"):
+        df = pd.read_excel("data.xlsx", skiprows=1)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    return pd.DataFrame()
+
+df = load_data()
+
+if not df.empty:
+    # 검색 기능
+    st.sidebar.header("🔍 검색 및 필터")
+    search = st.sidebar.text_input("지역 또는 내용 검색")
+    df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
+
+    # 4. 지도 및 요약 표시
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 64건)")
+    
+    m = folium.Map(location=[36.5, 127.8], zoom_start=7)
+    marker_cluster = MarkerCluster().add_to(m)
+
+    for _, row in df_filtered.iterrows():
+        # 지명 인식 개선 (공백 제거 및 부분 일치)
+        city_full_text = str(row.get('시군', '')).replace(" ", "")
+        coords = None
+        
+        # 엑셀 자체 좌표 확인
+        lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
+        lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
+        
+        if pd.notnull(lat_val) and pd.notnull(lon_val):
+            coords = [lat_val, lon_val]
+        else:
+            # 사전 기반 매칭
+            for key, val in location_map.items():
+                if key in city_full_text:
+                    coords = val
+                    break
+        
+        if coords:
+            scale = row.get('사육규모', 0)
+            scale_txt = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else str(scale)
+            
+            popup_html = f"""
+            <div style="font-family: 'Malgun Gothic'; width: 200px;">
+                <h4 style="margin: 0; color: #d32f2f;">{city_full_text}</h4>
+                <hr style="margin: 5px 0;">
+                <p><b>규모:</b> {scale_txt} 두</p>
+                <p><b>내용:</b> {row.get('발생내용', '')}</p>
+            </div>
+            """
+            folium.Marker(
+                location=coords,
+                popup=folium.Popup(popup_html, max_width=300),
+                icon=folium.Icon(color='red', icon='warning', prefix='fa')
+            ).add_to(marker_cluster)
+
+    st_folium(m, width="100%", height=600)
+
+    # 5. 목록 표시
+    st.subheader("📋 상세 발생 목록")
+    display_df = df_filtered.copy()
+    if '사육규모' in display_df.columns:
+        display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+else:
+    st.warning("data.xlsx 파일을 찾을 수 없습니다.")
