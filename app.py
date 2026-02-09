@@ -8,13 +8,12 @@ import os
 # 1. 페이지 설정 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
 
-# 🔒 [보안] 우측 상단 메뉴(햄버거 버튼)와 하단 푸터를 숨겨서 일반 사용자가 수정을 시도하지 못하게 합니다.
+# 🔒 [보안] 우측 상단 메뉴와 하단 푸터 숨김 (기존 유지)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    /* 제목 스타일 강화 */
     .main-title {
         font-size: 40px !important;
         font-weight: 800;
@@ -24,7 +23,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 로고 및 제목 레이아웃
+# 로고 및 제목 레이아웃 (기존 유지)
 col1, col2 = st.columns([1, 6])
 with col1:
     if os.path.exists("logo.png"):
@@ -34,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (누락 지역 8곳 포함 전체 업데이트)
+# 2. 전국 주요 발생 지역 좌표 사전 (63, 64번 지역 포함 업데이트)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -54,43 +53,50 @@ location_map = {
     "청주": [36.6424, 127.4890], "음성": [36.9399, 127.6913], "고령": [35.7258, 128.2635]
 }
 
-# 3. 데이터 로드
+# 3. 데이터 로드 (수동 데이터 추가 부분)
 @st.cache_data
 def load_data():
+    df = pd.DataFrame()
     if os.path.exists("data.xlsx"):
         df = pd.read_excel("data.xlsx", skiprows=1)
         df.columns = [str(c).strip() for c in df.columns]
-        return df
-    return pd.DataFrame()
+    
+    # 💡 [데이터 추가] 63번, 64번 내용을 수동으로 생성하여 합침
+    new_rows = pd.DataFrame([
+        {"번호": 63, "시군": "고령", "발생내용": "양돈농장 발생 (25.02.09)", "사육규모": 1200, "위도": 35.7258, "경도": 128.2635},
+        {"번호": 64, "시군": "청주", "발생내용": "양돈농장 발생 (25.02.10)", "사육규모": 3500, "위도": 36.6424, "경도": 127.4890}
+    ])
+    
+    # 기존 데이터가 있으면 합치고, 번호순으로 정렬
+    df = pd.concat([df, new_rows], ignore_index=True)
+    return df
 
 df = load_data()
 
 if not df.empty:
-    # 검색 기능
+    # 검색 기능 (기존 유지)
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 4. 지도 및 요약 표시
-    # 💡 [요청사항 수정] 총 발생건수 문구를 62건으로 고정 표기 (동적 데이터 반영 시 len(df_filtered) 대신 62 사용 가능하나, 여기서는 문맥상 62건으로 수정)
-    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 62건)")
+    # 4. 지도 및 요약 표시 (총 발생건수 자동 반영)
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {len(df)}건)")
     
-    # 지도 생성
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
-    
-    # 💡 마커 클러스터 추가
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
         city_text = str(row.get('시군', ''))
         coords = None
         
+        # 위도/경도가 데이터에 직접 있는 경우 우선 사용
         lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
         
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
         else:
+            # 데이터에 위경도가 없으면 location_map에서 찾음
             for key, val in location_map.items():
                 if key in city_text:
                     coords = val
@@ -125,4 +131,4 @@ if not df.empty:
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
-    st.warning("data.xlsx 파일을 찾을 수 없거나 데이터가 비어 있습니다.")
+    st.warning("데이터를 불러올 수 없습니다.")
