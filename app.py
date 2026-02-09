@@ -34,7 +34,6 @@ with col2:
 
 # 2. 전국 상세 발생 지역 좌표 사전
 location_map = {
-    # 기존 지역들
     "연다산동": [37.7402, 126.7481], "백학면": [37.9625, 126.9112], "통진읍": [37.6865, 126.5912],
     "적성면": [38.0035, 126.9234], "적성읍": [38.0035, 126.9234], "송해면": [37.7852, 126.4746],
     "불은면": [37.6961, 126.5055], "삼산면": [37.6841, 126.3312], "강화읍": [37.7461, 126.4842],
@@ -52,65 +51,74 @@ location_map = {
     "송산면": [36.9512, 126.6812], "강동면": [37.7212, 128.9812], "미양면": [36.9312, 127.2412],
     "홍농읍": [35.3912, 126.4412], "성송면": [35.3512, 126.6512], "청소면": [36.4312, 126.5812],
     "대합면": [35.6112, 128.5112], "남양읍": [37.2084, 126.8177],
-    
-    # 신규 추가 (전남 나주 봉황면)
-    "봉황면": [34.9315, 126.7958]
+    "봉황면": [34.9315, 126.7958] # 나주 봉황면 추가
 }
 
-# 3. 데이터 로드
+# 3. 데이터 로드 및 전처리
 @st.cache_data(ttl=10)
 def load_data():
     if os.path.exists("data.xlsx"):
-        # skiprows=1을 유지하여 엑셀 상단 양식 무시
+        # 엑셀 시트의 실제 구조에 따라 skiprows 조절이 필요할 수 있습니다.
         df = pd.read_excel("data.xlsx", skiprows=1)
+        
+        # 컬럼명 양끝 공백 제거 및 문자열 변환
         df.columns = [str(c).strip() for c in df.columns]
+        
+        # '번호' 컬럼이 비어있지 않은 데이터만 필터링
         if '번호' in df.columns:
-            # 번호가 있는 행만 유효 데이터로 간주
-            df['번호_temp'] = pd.to_numeric(df['번호'], errors='coerce')
-            df = df.dropna(subset=['번호_temp']).sort_values(by='번호_temp')
-            df['번호'] = df['번호_temp'].astype(int)
-            df = df.drop(columns=['번호_temp'])
+            df = df.dropna(subset=['번호'])
+            # 번호를 정수형으로 변환 (소수점 제거)
+            df['번호'] = pd.to_numeric(df['번호'], errors='coerce').fillna(0).astype(int)
+            df = df[df['번호'] > 0].sort_values(by='번호')
         return df
     return pd.DataFrame()
 
 df = load_data()
 
-# 4. 필터링 및 지도
+# 4. 필터링 및 지도 표시
 if not df.empty:
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 발생건수 65건으로 고정 표기
     st.subheader("📍 ASF 발생 위치 (총 발생건수: 65건)")
     
-    # 지도 생성
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster(spiderfy_on_max_zoom=True).add_to(m)
 
     for _, row in df_filtered.iterrows():
-        city_text = str(row.get('시군', ''))
+        city_text = str(row.get('시군', '정보없음'))
+        # 중요: row.get() 내의 이름이 엑셀 헤더와 정확히 일치해야 합니다.
+        num = row.get('번호', '?')
+        content = row.get('발생내용', '내용 없음')
+        scale = row.get('사육규모', '-')
+
         coords = None
-        
-        # 1. 위도/경도 직접 입력 확인
         lat_ex = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_ex = pd.to_numeric(row.get('경도'), errors='coerce')
         
         if pd.notnull(lat_ex) and pd.notnull(lon_ex):
             coords = [lat_ex, lon_ex]
         else:
-            # 2. 사전 매핑 확인 (봉황면 포함)
             for key, val in location_map.items():
                 if key in city_text:
                     coords = val
                     break
         
         if coords:
-            scale = row.get('사육규모', 0)
-            popup_html = f"<b>[{row.get('번호', '')}번] {city_text}</b><br>규모: {scale}<br>내용: {row.get('발생내용', '')}"
+            # 팝업 HTML 디자인 개선
+            popup_html = f"""
+            <div style="width:200px; font-family: sans-serif;">
+                <h4 style="margin:0; color:#d32f2f;">{num}번 발생</h4>
+                <hr style="margin:5px 0;">
+                <b>지역:</b> {city_text}<br>
+                <b>규모:</b> {scale}<br>
+                <b>내용:</b> {content}
+            </div>
+            """
             folium.Marker(
                 location=coords,
-                popup=folium.Popup(popup_html, max_width=250),
+                popup=folium.Popup(popup_html, max_width=300),
                 icon=folium.Icon(color='red', icon='warning', prefix='fa')
             ).add_to(marker_cluster)
 
@@ -119,6 +127,8 @@ if not df.empty:
     # 5. 목록 표시
     st.subheader("📋 상세 발생 목록")
     display_df = df_filtered.copy()
+    
+    # 지도용 위경도 컬럼 제거 후 표시
     display_df = display_df.drop(columns=['위도', '경도'], errors='ignore')
     
     if '사육규모' in display_df.columns:
@@ -127,4 +137,4 @@ if not df.empty:
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 else:
-    st.warning("데이터가 없습니다. 엑셀 파일과 경로를 확인해 주세요.")
+    st.warning("데이터가 없습니다. 엑셀 파일 내 '번호', '시군' 컬럼명을 확인해 주세요.")
