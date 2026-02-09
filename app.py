@@ -5,30 +5,22 @@ from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 import os
 
-# 1. 페이지 설정 및 보안 설정
+# 1. 페이지 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
-
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .main-title {
-        font-size: 40px !important;
-        font-weight: 800;
-        color: #d32f2f;
-        text-align: left;
-    }
+    .main-title { font-size: 40px !important; font-weight: 800; color: #d32f2f; text-align: left; }
     </style>
     """, unsafe_allow_html=True)
 
-# 로고 및 제목 레이아웃
+# 로고 및 제목
 col1, col2 = st.columns([1, 6])
 with col1:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=180)
-    else:
-        st.markdown("<h3 style='margin-top:30px;'>🏢 LOGO</h3>", unsafe_allow_html=True)
+    if os.path.exists("logo.png"): st.image("logo.png", width=180)
+    else: st.markdown("<h3 style='margin-top:30px;'>🏢 LOGO</h3>", unsafe_allow_html=True)
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
@@ -58,24 +50,29 @@ def load_data():
     if os.path.exists("data.xlsx"):
         df = pd.read_excel("data.xlsx", skiprows=1)
         df.columns = [str(c).strip() for c in df.columns]
+        # 컬럼명이 '번호'가 아닐 경우를 대비해 첫 열 강제 지정
+        if '번호' not in df.columns:
+            df.rename(columns={df.columns[0]: '번호'}, inplace=True)
     else:
         df = pd.DataFrame(columns=['번호', '시군', '발생내용', '사육규모'])
 
-    # 💡 [중요] '계' 행이나 '53-1' 등 숫자가 아닌 데이터 미리 제거해서 꼬임 방지
-    df = df[pd.to_numeric(df['번호'], errors='coerce').notnull()].copy()
-    df['번호'] = df['번호'].astype(int)
+    # 💡 1. 순수 숫자 데이터만 필터링 (53-1, 계 등 제거)
+    df['번호_clean'] = pd.to_numeric(df['번호'], errors='coerce')
+    df = df[df['번호_clean'].notnull()].copy()
+    df['번호'] = df['번호_clean'].astype(int)
 
-    # 💡 63번, 64번 수동 추가
-    new_data = pd.DataFrame([
+    # 💡 2. 63번, 64번 수동 데이터 정의
+    extra_data = pd.DataFrame([
         {"번호": 63, "시군": "고령", "발생내용": "양돈농장 발생 (25.02.09)", "사육규모": 1200, "위도": 35.7258, "경도": 128.2635},
         {"번호": 64, "시군": "청주", "발생내용": "양돈농장 발생 (25.02.10)", "사육규모": 3500, "위도": 36.6424, "경도": 127.4890}
     ])
-    
-    # 데이터 합치기 및 번호 정렬
-    df = pd.concat([df, new_data], ignore_index=True)
-    df = df.sort_values(by='번호', ascending=True)
 
-    # 💡 '계' 행을 계산하여 가장 마지막에 추가
+    # 💡 3. 합치기 및 1~64번 정렬
+    df = pd.concat([df, extra_data], ignore_index=True)
+    df = df.sort_values(by='번호').reset_index(drop=True)
+    df = df.drop(columns=['번호_clean'], errors='ignore')
+
+    # 💡 4. '계' 행 계산 (숫자 데이터의 마지막에 추가)
     total_scale = df['사육규모'].sum()
     summary_row = pd.DataFrame([{"번호": "계", "시군": "-", "발생내용": "총 발생 합계", "사육규모": total_scale}])
     
@@ -83,24 +80,23 @@ def load_data():
 
 df = load_data()
 
+# 4. 지도 및 목록 구현
 if not df.empty:
-    # 검색 기능
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 4. 지도 표시 (발생건수 64건 고정)
+    # 총 발생건수 64건 고정
     st.subheader("📍 ASF 발생 위치 (총 발생건수: 64건)")
     
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
-        if row['번호'] == "계": continue  # 지도에는 '계' 표시 안 함
+        if row['번호'] == "계": continue  # 지도는 '계' 제외
         
         city_text = str(row.get('시군', ''))
         coords = None
-        
         lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
         
@@ -115,30 +111,17 @@ if not df.empty:
         if coords:
             scale = row.get('사육규모', 0)
             scale_formatted = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else str(scale)
-            
-            popup_html = f"""
-            <div style="font-family: 'Malgun Gothic', sans-serif; width: 200px;">
-                <h4 style="margin: 0 0 5px 0; color: #d32f2f;">{city_text}</h4>
-                <hr style="margin: 5px 0;">
-                <p style="margin: 3px 0;"><b>규모:</b> {scale_formatted} 두</p>
-                <p style="margin: 3px 0;"><b>내용:</b> {row.get('발생내용', '')}</p>
-            </div>
-            """
-            folium.Marker(
-                location=coords,
-                popup=folium.Popup(popup_html, max_width=300),
-                icon=folium.Icon(color='red', icon='warning', prefix='fa')
-            ).add_to(marker_cluster)
+            popup_html = f"""<div style="font-family:'Malgun Gothic';"><b>{city_text}</b><br>규모: {scale_formatted}두<br>{row.get('발생내용','')}</div>"""
+            folium.Marker(location=coords, popup=folium.Popup(popup_html, max_width=300), icon=folium.Icon(color='red', icon='warning', prefix='fa')).add_to(marker_cluster)
 
     st_folium(m, width="100%", height=600)
 
-    # 5. 목록 표시
+    # 📋 상세 발생 목록
     st.subheader("📋 상세 발생 목록")
     display_df = df_filtered.copy()
-    
     if '사육규모' in display_df.columns:
         display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
-    st.warning("데이터를 불러올 수 없습니다.")
+    st.warning("데이터가 비어 있습니다.")
