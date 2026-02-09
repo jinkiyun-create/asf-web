@@ -33,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (SyntaxError 해결 및 전체 지역 포함)
+# 2. 전국 주요 발생 지역 좌표 사전
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -59,7 +59,8 @@ location_map = {
 @st.cache_data
 def load_data():
     if os.path.exists("data.xlsx"):
-        df = pd.read_excel("data.xlsx", skiprows=1)
+        # 💡 [중요] 63, 64번 데이터가 안 보인다면 skiprows를 제거하여 모든 행을 읽어야 합니다.
+        df = pd.read_excel("data.xlsx") 
         df.columns = [str(c).strip() for c in df.columns]
         return df
     return pd.DataFrame()
@@ -73,24 +74,22 @@ if not df.empty:
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
     # 4. 지도 및 요약 표시
+    # 요청하신 대로 제목과 총 발생건수(64건)를 유지합니다.
     st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 64건)")
     
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
-        # 지명 인식 개선 (공백 제거 및 부분 일치)
         city_full_text = str(row.get('시군', '')).replace(" ", "")
         coords = None
         
-        # 엑셀 자체 좌표 확인
         lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
         
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
         else:
-            # 사전 기반 매칭
             for key, val in location_map.items():
                 if key in city_full_text:
                     coords = val
