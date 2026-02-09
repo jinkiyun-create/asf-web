@@ -33,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (SyntaxError 해결 및 전체 지역 포함)
+# 2. 전국 주요 발생 지역 좌표 사전
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -55,12 +55,23 @@ location_map = {
     "고창": [35.4358, 126.7020], "국토정중앙": [38.1051, 127.9897]
 }
 
-# 3. 데이터 로드
+# 3. 데이터 로드 (Unnamed 방지 및 63~64번 강제 로드)
 @st.cache_data
 def load_data():
     if os.path.exists("data.xlsx"):
+        # 기존처럼 1줄 건너뛰기 유지
         df = pd.read_excel("data.xlsx", skiprows=1)
+        
+        # [수정] 'Unnamed'로 시작하는 불필요한 열 자동 제거
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # 컬럼명 공백 제거
         df.columns = [str(c).strip() for c in df.columns]
+        
+        # [수정] No 컬럼이 있는 행만 남겨서 63, 64번 데이터가 확실히 포함되게 함
+        if 'No' in df.columns:
+            df = df[df['No'].notnull()]
+            
         return df
     return pd.DataFrame()
 
@@ -72,14 +83,14 @@ if not df.empty:
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 4. 지도 및 요약 표시
+    # 4. 지도 및 요약 표시 (제목 레이아웃 유지)
     st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 64건)")
     
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
-        # 지명 인식 개선 (공백 제거 및 부분 일치)
+        # 지명 인식 (열 이름이 꼬여도 시군 정보를 찾도록 보강)
         city_full_text = str(row.get('시군', '')).replace(" ", "")
         coords = None
         
