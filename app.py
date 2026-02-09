@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster  # 💡 중복 위치 표시 해결
+from folium.plugins import MarkerCluster
 import os
 
 # 1. 페이지 설정 및 보안 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
 
-# 🔒 [보안] 우측 상단 메뉴와 하단 푸터 숨김 (기존 유지)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -23,7 +22,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 로고 및 제목 레이아웃 (기존 유지)
+# 로고 및 제목 레이아웃
 col1, col2 = st.columns([1, 6])
 with col1:
     if os.path.exists("logo.png"):
@@ -33,7 +32,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전 (63, 64번 지역 포함 업데이트)
+# 2. 좌표 사전
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -53,50 +52,64 @@ location_map = {
     "청주": [36.6424, 127.4890], "음성": [36.9399, 127.6913], "고령": [35.7258, 128.2635]
 }
 
-# 3. 데이터 로드 (수동 데이터 추가 부분)
+# 3. 데이터 로드 및 정렬 로직
 @st.cache_data
 def load_data():
-    df = pd.DataFrame()
     if os.path.exists("data.xlsx"):
         df = pd.read_excel("data.xlsx", skiprows=1)
         df.columns = [str(c).strip() for c in df.columns]
-    
-    # 💡 [데이터 추가] 63번, 64번 내용을 수동으로 생성하여 합침
-    new_rows = pd.DataFrame([
+    else:
+        df = pd.DataFrame(columns=['번호', '시군', '발생내용', '사육규모'])
+
+    # 💡 53-1이나 '계'와 같은 행 제외하고 숫자만 남기기
+    df = df[df['번호'].apply(lambda x: str(x).isdigit())].copy()
+
+    # 💡 63번, 64번 추가
+    new_data = pd.DataFrame([
         {"번호": 63, "시군": "고령", "발생내용": "양돈농장 발생 (25.02.09)", "사육규모": 1200, "위도": 35.7258, "경도": 128.2635},
         {"번호": 64, "시군": "청주", "발생내용": "양돈농장 발생 (25.02.10)", "사육규모": 3500, "위도": 36.6424, "경도": 127.4890}
     ])
     
-    # 기존 데이터가 있으면 합치고, 번호순으로 정렬
-    df = pd.concat([df, new_rows], ignore_index=True)
-    return df
+    df = pd.concat([df, new_data], ignore_index=True)
+    
+    # 번호순 정렬 (숫자로 변환 후 정렬)
+    df['번호'] = pd.to_numeric(df['번호'])
+    df = df.sort_values(by='번호', ascending=True)
+
+    # 💡 '계' 행을 수동으로 만들어 맨 마지막에 추가
+    total_scale = df['사육규모'].sum()
+    summary_row = pd.DataFrame([{"번호": "계", "시군": "-", "발생내용": "총 발생 합계", "사육규모": total_scale}])
+    
+    return pd.concat([df, summary_row], ignore_index=True)
 
 df = load_data()
 
 if not df.empty:
-    # 검색 기능 (기존 유지)
+    # 검색 기능
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
+    # '계' 행은 검색에서 제외되지 않도록 유지하거나 필터링
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 4. 지도 및 요약 표시 (총 발생건수 자동 반영)
-    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {len(df)}건)")
+    # 4. 지도 및 요약 표시 (총 발생건수 64건 고정)
+    st.subheader(f"📍 ASF 발생 위치 (총 발생건수: 64건)")
     
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster().add_to(m)
 
+    # 지도에는 '계' 행을 제외하고 마커 표시
     for _, row in df_filtered.iterrows():
+        if row['번호'] == "계": continue
+        
         city_text = str(row.get('시군', ''))
         coords = None
         
-        # 위도/경도가 데이터에 직접 있는 경우 우선 사용
         lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
         
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
         else:
-            # 데이터에 위경도가 없으면 location_map에서 찾음
             for key, val in location_map.items():
                 if key in city_text:
                     coords = val
@@ -114,7 +127,6 @@ if not df.empty:
                 <p style="margin: 3px 0;"><b>내용:</b> {row.get('발생내용', '')}</p>
             </div>
             """
-            
             folium.Marker(
                 location=coords,
                 popup=folium.Popup(popup_html, max_width=300),
@@ -126,9 +138,12 @@ if not df.empty:
     # 5. 목록 표시
     st.subheader("📋 상세 발생 목록")
     display_df = df_filtered.copy()
+    
+    # 숫자 포맷팅 (사육규모)
     if '사육규모' in display_df.columns:
         display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+
 else:
-    st.warning("데이터를 불러올 수 없습니다.")
+    st.warning("데이터를 표시할 수 없습니다.")
