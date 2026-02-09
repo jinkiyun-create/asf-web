@@ -24,7 +24,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 전국 주요 발생 지역 좌표 사전
+# 2. 전국 주요 발생 지역 좌표 사전 (지도 표시용 내부 데이터)
 location_map = {
     "연천": [38.0964, 127.0754], "파주": [37.7600, 126.7798], "철원": [38.1463, 127.3132],
     "화천": [38.1061, 127.7081], "양구": [38.1051, 127.9897], "인제": [38.0696, 128.1703],
@@ -48,39 +48,45 @@ location_map = {
 @st.cache_data
 def load_data():
     if os.path.exists("data.xlsx"):
+        # 엑셀의 실제 구조에 맞춰 로드
         df = pd.read_excel("data.xlsx", skiprows=1)
         df.columns = [str(c).strip() for c in df.columns]
-        # 컬럼명이 '번호'가 아닐 경우를 대비해 첫 열 강제 지정
-        if '번호' not in df.columns:
-            df.rename(columns={df.columns[0]: '번호'}, inplace=True)
     else:
-        df = pd.DataFrame(columns=['번호', '시군', '발생내용', '사육규모'])
+        # 파일 없을 시 빈 데이터프레임 (컬럼명 맞춤)
+        df = pd.DataFrame(columns=['번호', '도', '시군', '년도', '신고일자', '확진일자', '사육규모', '발생내용'])
 
-    # 💡 1. 순수 숫자 데이터만 필터링 (53-1, 계 등 제거)
-    df['번호_clean'] = pd.to_numeric(df['번호'], errors='coerce')
-    df = df[df['번호_clean'].notnull()].copy()
-    df['번호'] = df['번호_clean'].astype(int)
+    # 1. 숫자가 아닌 번호(계, 53-1 등) 제외하고 순수 숫자 데이터만 남김
+    df = df[pd.to_numeric(df['번호'], errors='coerce').notnull()].copy()
+    df['번호'] = df['번호'].astype(int)
 
-    # 💡 2. 63번, 64번 수동 데이터 정의
+    # 2. 63번, 64번 수동 데이터 추가 (엑셀 컬럼 형식에 맞춤)
     extra_data = pd.DataFrame([
-        {"번호": 63, "시군": "고령", "발생내용": "양돈농장 발생 (25.02.09)", "사육규모": 1200, "위도": 35.7258, "경도": 128.2635},
-        {"번호": 64, "시군": "청주", "발생내용": "양돈농장 발생 (25.02.10)", "사육규모": 3500, "위도": 36.6424, "경도": 127.4890}
+        {
+            "번호": 63, "도": "경북", "시군": "고령", "년도": 2025, 
+            "신고일자": "2025-02-09", "확진일자": "2025-02-09", "사육규모": 1200, "발생내용": "양돈농장 발생"
+        },
+        {
+            "번호": 64, "도": "충북", "시군": "청주", "년도": 2025, 
+            "신고일자": "2025-02-10", "확진일자": "2025-02-10", "사육규모": 3500, "발생내용": "양돈농장 발생"
+        }
     ])
 
-    # 💡 3. 합치기 및 1~64번 정렬
+    # 3. 데이터 통합 및 1~64번 정렬
     df = pd.concat([df, extra_data], ignore_index=True)
     df = df.sort_values(by='번호').reset_index(drop=True)
-    df = df.drop(columns=['번호_clean'], errors='ignore')
 
-    # 💡 4. '계' 행 계산 (숫자 데이터의 마지막에 추가)
+    # 4. '계' 행 계산 (최하단 추가용)
     total_scale = df['사육규모'].sum()
-    summary_row = pd.DataFrame([{"번호": "계", "시군": "-", "발생내용": "총 발생 합계", "사육규모": total_scale}])
+    summary_row = pd.DataFrame([{
+        "번호": "계", "도": "-", "시군": "-", "년도": "-", 
+        "신고일자": "-", "확진일자": "-", "사육규모": total_scale, "발생내용": "총 합계"
+    }])
     
     return pd.concat([df, summary_row], ignore_index=True)
 
 df = load_data()
 
-# 4. 지도 및 목록 구현
+# 4. 화면 구현
 if not df.empty:
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
@@ -93,12 +99,15 @@ if not df.empty:
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in df_filtered.iterrows():
-        if row['번호'] == "계": continue  # 지도는 '계' 제외
+        if row['번호'] == "계": continue
         
+        # 지도 표시용 좌표 매칭
         city_text = str(row.get('시군', ''))
         coords = None
-        lat_val = pd.to_numeric(row.get('위도'), errors='coerce')
-        lon_val = pd.to_numeric(row.get('경도'), errors='coerce')
+        
+        # 데이터 내에 위경도가 있으면 쓰고, 없으면 location_map 활용
+        lat_val = pd.to_numeric(row.get('위도'), errors='coerce') if '위도' in row else None
+        lon_val = pd.to_numeric(row.get('경도'), errors='coerce') if '경도' in row else None
         
         if pd.notnull(lat_val) and pd.notnull(lon_val):
             coords = [lat_val, lon_val]
@@ -111,17 +120,23 @@ if not df.empty:
         if coords:
             scale = row.get('사육규모', 0)
             scale_formatted = f"{scale:,.0f}" if isinstance(scale, (int, float)) and pd.notnull(scale) else str(scale)
-            popup_html = f"""<div style="font-family:'Malgun Gothic';"><b>{city_text}</b><br>규모: {scale_formatted}두<br>{row.get('발생내용','')}</div>"""
-            folium.Marker(location=coords, popup=folium.Popup(popup_html, max_width=300), icon=folium.Icon(color='red', icon='warning', prefix='fa')).add_to(marker_cluster)
+            popup_html = f"<b>{city_text}</b><br>사육규모: {scale_formatted}두"
+            folium.Marker(location=coords, popup=folium.Popup(popup_html, max_width=200), icon=folium.Icon(color='red', icon='warning', prefix='fa')).add_to(marker_cluster)
 
     st_folium(m, width="100%", height=600)
 
-    # 📋 상세 발생 목록
+    # 5. 상세 발생 목록 (위도, 경도 제외)
     st.subheader("📋 상세 발생 목록")
+    
+    # 위도, 경도 컬럼이 있다면 제거하고 출력
     display_df = df_filtered.copy()
+    cols_to_drop = [c for c in ['위도', '경도'] if c in display_df.columns]
+    display_df = display_df.drop(columns=cols_to_drop)
+    
+    # 사육규모 콤마 형식
     if '사육규모' in display_df.columns:
         display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
-    st.warning("데이터가 비어 있습니다.")
+    st.warning("데이터를 불러올 수 없습니다.")
