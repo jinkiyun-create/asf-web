@@ -80,8 +80,8 @@ if not df.empty:
     search = st.sidebar.text_input("지역 또는 내용 검색")
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
-    # 요청하신 64건 고정 표기
-    st.subheader("📍 ASF 발생 위치 (총 발생건수: 64건)")
+    # 요청하신 65건 고정 표기
+    st.subheader("📍 ASF 발생 위치 (총 발생건수: 65건)")
     
     # 지도 생성 (중복 위치 해결을 위해 spiderfy_on_max_zoom 사용)
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
@@ -127,3 +127,4 @@ if not df.empty:
 
 else:
     st.warning("데이터가 없습니다. 엑셀 파일과 경로를 확인해 주세요.")
+
