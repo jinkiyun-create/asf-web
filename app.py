@@ -32,7 +32,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 좌표 사전 (나주 봉황면 포함)
+# 2. 좌표 사전
 location_map = {
     "연다산동": [37.7402, 126.7481], "백학면": [37.9625, 126.9112], "통진읍": [37.6865, 126.5912],
     "적성면": [38.0035, 126.9234], "적성읍": [38.0035, 126.9234], "송해면": [37.7852, 126.4746],
@@ -62,10 +62,13 @@ def load_data():
         df.columns = [str(c).strip() for c in df.columns]
         
         if '번호' in df.columns:
+            # 1. '번호' 열을 숫자로 강제 변환 (글자가 섞여있으면 NaN으로 만듦)
+            df['번호'] = pd.to_numeric(df['번호'], errors='coerce')
+            # 2. 숫자가 아닌 행(NaN)은 제거
             df = df.dropna(subset=['번호'])
-            df['번호'] = pd.to_numeric(df['번호'], errors='coerce').fillna(0).astype(int)
-            # ⭐ 핵심 변경: 번호를 기준으로 내림차순(최신순) 정렬
-            df = df[df['번호'] > 0].sort_values(by='번호', ascending=False)
+            # 3. 정수로 변환 후 내림차순 정렬
+            df['번호'] = df['번호'].astype(int)
+            df = df.sort_values(by='번호', ascending=False)
         return df
     return pd.DataFrame()
 
@@ -83,7 +86,12 @@ if not df.empty:
     marker_cluster = MarkerCluster(spiderfy_on_max_zoom=True).add_to(m)
 
     for _, row in df_filtered.iterrows():
-        num = row.get('번호')
+        # ⭐ 에러 방지용: num을 가져올 때 한 번 더 체크
+        try:
+            num_val = int(row['번호'])
+        except:
+            num_val = "?"
+
         city_text = str(row.get('시군', '정보없음'))
         content = str(row.get('발생내용', '내용 없음'))
         scale = str(row.get('사육규모', '-'))
@@ -103,7 +111,7 @@ if not df.empty:
         if coords:
             popup_html = f"""
             <div style="width:200px; font-family: 'Malgun Gothic', sans-serif;">
-                <h4 style="margin:0; color:#d32f2f;">{int(num)}번 발생</h4>
+                <h4 style="margin:0; color:#d32f2f;">{num_val}번 발생</h4>
                 <hr style="margin:5px 0;">
                 <p style="margin:2px 0;"><b>📍 지역:</b> {city_text}</p>
                 <p style="margin:2px 0;"><b>🐷 규모:</b> {scale}</p>
@@ -118,10 +126,9 @@ if not df.empty:
 
     st_folium(m, width="100%", height=600)
 
-    # 5. 목록 표시
+    # 5. 목록 표시 (최신순)
     st.subheader("📋 상세 발생 목록 (최신순)")
-    # 데이터프레임 복사 및 정렬 확인
-    display_df = df_filtered.copy().sort_values(by='번호', ascending=False)
+    display_df = df_filtered.copy()
     display_df = display_df.drop(columns=['위도', '경도'], errors='ignore')
     
     if '사육규모' in display_df.columns:
@@ -130,4 +137,4 @@ if not df.empty:
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 else:
-    st.warning("데이터가 없습니다. 엑셀 파일의 컬럼명이 '번호', '시군'으로 시작하는지 확인해 주세요.")
+    st.warning("데이터가 없습니다. 엑셀 파일의 컬럼명을 확인해 주세요.")
