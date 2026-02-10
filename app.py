@@ -32,7 +32,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 좌표 사전
+# 2. 좌표 사전 (봉황면 포함)
 location_map = {
     "연다산동": [37.7402, 126.7481], "백학면": [37.9625, 126.9112], "통진읍": [37.6865, 126.5912],
     "적성면": [38.0035, 126.9234], "적성읍": [38.0035, 126.9234], "송해면": [37.7852, 126.4746],
@@ -54,31 +54,36 @@ location_map = {
     "봉황면": [34.9315, 126.7958]
 }
 
-# 3. 데이터 로드 및 전처리
-@st.cache_data(ttl=10)
+# 3. 데이터 로드 (캐시 비우기 위해 ttl 설정 확인)
+@st.cache_data(ttl=5)
 def load_data():
     if os.path.exists("data.xlsx"):
         df = pd.read_excel("data.xlsx", skiprows=1)
         df.columns = [str(c).strip() for c in df.columns]
         
         if '번호' in df.columns:
-            # 1. '번호' 열을 숫자로 강제 변환 (글자가 섞여있으면 NaN으로 만듦)
+            # 숫자로 변환 후 에러 데이터는 제거
             df['번호'] = pd.to_numeric(df['번호'], errors='coerce')
-            # 2. 숫자가 아닌 행(NaN)은 제거
             df = df.dropna(subset=['번호'])
-            # 3. 정수로 변환 후 내림차순 정렬
             df['번호'] = df['번호'].astype(int)
+            # 데이터를 미리 최신순(내림차순)으로 정렬
             df = df.sort_values(by='번호', ascending=False)
         return df
     return pd.DataFrame()
 
+# 데이터 로드
 df = load_data()
 
 # 4. 필터링 및 지도
 if not df.empty:
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
-    df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
+    
+    # 필터링 후에도 최신순 유지
+    if search:
+        df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+    else:
+        df_filtered = df.copy()
 
     st.subheader("📍 ASF 발생 위치 (총 발생건수: 65건)")
     
@@ -86,7 +91,6 @@ if not df.empty:
     marker_cluster = MarkerCluster(spiderfy_on_max_zoom=True).add_to(m)
 
     for _, row in df_filtered.iterrows():
-        # ⭐ 에러 방지용: num을 가져올 때 한 번 더 체크
         try:
             num_val = int(row['번호'])
         except:
@@ -126,15 +130,23 @@ if not df.empty:
 
     st_folium(m, width="100%", height=600)
 
-    # 5. 목록 표시 (최신순)
+    # 5. 목록 표시 (여기서 다시 한번 명시적으로 최신순 정렬)
     st.subheader("📋 상세 발생 목록 (최신순)")
-    display_df = df_filtered.copy()
-    display_df = display_df.drop(columns=['위도', '경도'], errors='ignore')
     
-    if '사육규모' in display_df.columns:
-        display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x)
+    # 정렬 확정: 번호 기준 내림차순(ascending=False)
+    final_display_df = df_filtered.copy().sort_values(by='번호', ascending=False)
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # 불필요한 컬럼 제거
+    final_display_df = final_display_df.drop(columns=['위도', '경도'], errors='ignore')
+    
+    # 사육규모 콤마 형식 적용
+    if '사육규모' in final_display_df.columns:
+        final_display_df['사육규모'] = final_display_df['사육규모'].apply(
+            lambda x: f"{int(x):,}" if isinstance(x, (int, float)) and not pd.isna(x) else x
+        )
+    
+    # 인덱스 숨기고 표 출력
+    st.dataframe(final_display_df, use_container_width=True, hide_index=True)
 
 else:
     st.warning("데이터가 없습니다. 엑셀 파일의 컬럼명을 확인해 주세요.")
