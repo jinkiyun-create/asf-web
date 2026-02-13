@@ -8,6 +8,7 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="ASF 발생 현황 관리 시스템", layout="wide")
 
+# CSS 스타일 유지
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -32,7 +33,7 @@ with col1:
 with col2:
     st.markdown('<p class="main-title">아프리카돼지열병(ASF) 발생 현황 관리 시스템</p>', unsafe_allow_html=True)
 
-# 2. 좌표 사전 (최신 추가 지역 포함)
+# 2. 좌표 사전
 location_map = {
     "연다산동": [37.7402, 126.7481], "백학면": [37.9625, 126.9112], "통진읍": [37.6865, 126.5912],
     "적성면": [38.0035, 126.9234], "적성읍": [38.0035, 126.9234], "송해면": [37.7852, 126.4746],
@@ -53,29 +54,43 @@ location_map = {
     "덕천면": [35.6133, 126.8144], "구성면": [36.0592, 128.0581], "은하면": [36.5273, 126.5915]
 }
 
-# 3. 데이터 로드 및 전처리
+# 3. 데이터 로드 및 전처리 (오류 방지 강화)
 @st.cache_data(ttl=10)
 def load_data():
     if os.path.exists("data.xlsx"):
-        df = pd.read_excel("data.xlsx", skiprows=1)
-        # 컬럼 이름 전처리 (공백 제거)
-        df.columns = [str(c).strip() for c in df.columns]
-        
-        # 'no' 또는 '번호' 컬럼 중 하나라도 있으면 해당 컬럼을 'no'로 표준화
-        if 'no' in df.columns:
-            df = df.rename(columns={'no': '번호_실제'})
-        elif '번호' in df.columns:
-            df = df.rename(columns={'번호': '번호_실제'})
-        else:
-            # 둘 다 없을 경우 대비해 첫 번째 컬럼을 강제로 가져옴
-            df.rename(columns={df.columns[0]: '번호_실제'}, inplace=True)
-
-        # 번호_실제 데이터 정제 (숫자화)
-        df = df.dropna(subset=['번호_실제'])
-        df['번호_실제'] = pd.to_numeric(df['번호_실제'], errors='coerce').fillna(0).astype(int)
-        df = df[df['번호_실제'] > 0].sort_values(by='번호_실제')
-        
-        return df
+        # 엑셀의 헤더 위치를 자동으로 찾기 위해 우선 전체를 읽음
+        try:
+            # 기본적으로 헤더가 1행(index 0)에 있다고 가정
+            df = pd.read_excel("data.xlsx")
+            
+            # 만약 첫 번째 열 이름이 'Unnamed'라면 헤더가 2행에 있을 가능성이 높으므로 재시도
+            if "Unnamed" in df.columns[0]:
+                df = pd.read_excel("data.xlsx", skiprows=1)
+                
+            # 컬럼명 정리 (공백 제거)
+            df.columns = [str(c).strip() for c in df.columns]
+            
+            # 'no', 'No', '번호' 등 번호 역할을 하는 컬럼 찾기
+            num_col = None
+            for col in df.columns:
+                if col.lower() in ['no', '번호', 'no.']:
+                    num_col = col
+                    break
+            
+            if num_col:
+                # 번호 컬럼명을 '번호_실제'로 통일하여 이후 코드에서 고정 사용
+                df['번호_실제'] = pd.to_numeric(df[num_col], errors='coerce')
+                df = df.dropna(subset=['번호_실제'])
+                df['번호_실제'] = df['번호_실제'].astype(int)
+                return df.sort_values(by='번호_실제')
+            else:
+                # 번호 컬럼을 못 찾은 경우 첫 번째 열을 사용
+                df.rename(columns={df.columns[0]: '번호_실제'}, inplace=True)
+                df['번호_실제'] = pd.to_numeric(df['번호_실제'], errors='coerce').fillna(0).astype(int)
+                return df
+        except Exception as e:
+            st.error(f"엑셀 로딩 중 오류 발생: {e}")
+            return pd.DataFrame()
     return pd.DataFrame()
 
 df = load_data()
@@ -84,6 +99,8 @@ df = load_data()
 if not df.empty:
     st.sidebar.header("🔍 검색 및 필터")
     search = st.sidebar.text_input("지역 또는 내용 검색")
+    
+    # 필터링
     df_filtered = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)] if search else df
 
     st.subheader(f"📍 ASF 발생 위치 (총 발생건수: {len(df)}건)")
@@ -91,15 +108,15 @@ if not df.empty:
     m = folium.Map(location=[36.5, 127.8], zoom_start=7)
     marker_cluster = MarkerCluster(spiderfy_on_max_zoom=True).add_to(m)
 
-    for idx, row in df_filtered.iterrows():
-        # [핵심] 엑셀에 적힌 실제 'no' 값을 가져옵니다. 
-        # 순번(_ + 1)을 완전히 제거하여 김천이 68번으로 나오게 고정함
-        display_num = row['번호_실제']
+    for _, row in df_filtered.iterrows():
+        # [수정] 엑셀에서 읽어온 실제 번호를 표시 (김천은 68이 나옴)
+        actual_no = row['번호_실제']
         
         city_text = str(row.get('시군', '정보없음'))
         content = str(row.get('발생내용', '내용 없음'))
         scale = str(row.get('사육규모', '-'))
 
+        # 좌표 매칭
         coords = None
         lat_ex = pd.to_numeric(row.get('위도'), errors='coerce')
         lon_ex = pd.to_numeric(row.get('경도'), errors='coerce')
@@ -113,10 +130,9 @@ if not df.empty:
                     break
         
         if coords:
-            # 팝업 HTML (display_num 사용)
             popup_html = f"""
             <div style="width:200px; font-family: 'Malgun Gothic', sans-serif;">
-                <h4 style="margin:0; color:#d32f2f;">{display_num}번 발생</h4>
+                <h4 style="margin:0; color:#d32f2f;">{actual_no}번 발생</h4>
                 <hr style="margin:5px 0;">
                 <p style="margin:2px 0;"><b>📍 지역:</b> {city_text}</p>
                 <p style="margin:2px 0;"><b>🐷 규모:</b> {scale}</p>
@@ -135,16 +151,10 @@ if not df.empty:
     st.subheader("📋 상세 발생 목록")
     display_df = df_filtered.copy()
     
-    # 엑셀의 원래 컬럼명을 유지하기 위해 이름 복구
-    if '번호_실제' in display_df.columns:
-        display_df = display_df.rename(columns={'번호_실제': '번호(no)'})
-
+    # 불필요한 위경도 컬럼 제거 및 번호 컬럼 정리
     display_df = display_df.drop(columns=['위도', '경도'], errors='ignore')
-    
-    if '사육규모' in display_df.columns:
-        display_df['사육규모'] = display_df['사육규모'].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x)
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 else:
-    st.warning("데이터가 없습니다. 엑셀 파일의 첫 번째 열이 'no' 혹은 '번호'인지 확인해 주세요.")
+    st.warning("데이터가 없습니다. 엑셀 파일의 시트 내용이나 컬럼명(no, 번호 등)을 확인해 주세요.")
